@@ -2,7 +2,6 @@ FROM python:3.9-slim
 
 ARG PORT
 ARG HOST
-ARG SSH_PRIVATE_KEY
 
 WORKDIR /usr/src/app
 
