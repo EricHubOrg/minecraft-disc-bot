@@ -154,7 +154,7 @@ async def list_players(
 	# Run the command
 	ssh = f"ssh {USERNAME}@{HOST} -p {PORT}"
 	command = "cat minecraft_server/usernamecache.json"
-	result = subprocess.run(f"{ssh} {command}", shell=True, capture_output=True, text=True)
+	result = subprocess.run(f"{ssh} -v {command}", shell=True, capture_output=True, text=True)
 	
 	# Parse the result
 	if result.returncode != 0:
