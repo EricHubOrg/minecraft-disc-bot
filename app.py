@@ -2,11 +2,11 @@ import asyncio
 import subprocess
 from dotenv import load_dotenv
 import os
+import json
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_REMOVED
 from typing import Any, Optional
-
 import discord
 from discord import Intents, DMChannel, Embed, Color
 from discord.ext import commands, tasks
@@ -136,6 +136,39 @@ async def test_mine(
 ):
 	logging.info(f"Test command executed by {ctx.author}")
 	await ctx.send(f"Hello there! {arg0} + {arg1} = {arg0 + arg1}")
+
+
+@bot.command(
+	brief="List all players on the server.",
+	description="List all players on the server.",
+	usage="`%list_players`"
+)
+async def list_players(
+	ctx: commands.Context
+):
+	"""
+	List all players on the server.
+	"""
+	logging.info(f"list_players command executed by {ctx.author}")
+
+	# Run the command
+	ssh = f"ssh {USERNAME}@{HOST} -p {PORT}"
+	command = "cat minecraft_server/usernamecache.json"
+	result = subprocess.run(f"{ssh} {command}", shell=True, capture_output=True, text=True)
+	
+	# Parse the result
+	if result.returncode != 0:
+		await ctx.send(f"Error: {result.stderr}")
+		return
+	try:
+		players = json.loads(result.stdout)
+	except json.JSONDecodeError:
+		await ctx.send("Error: Invalid JSON output.")
+		return
+	
+	# Send the players
+	usernames = [f"`{players[uuid]}`" for uuid in players]
+	await ctx.send(f"Players on the server: {usernames}")
 
 if __name__ == "__main__":
 	bot.run(os.environ.get("DISCORD_TOKEN"))
