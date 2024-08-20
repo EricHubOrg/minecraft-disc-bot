@@ -158,8 +158,8 @@ async def list_players(
 	
 	# Parse the result
 	if result.returncode != 0:
-		await ctx.send(f"Error: {result.stderr[:100]}")
-		print(result.stderr)
+		await ctx.send("Error: Failed to list players. See logs for more details.")
+		logging.error(result.stderr)
 		return
 	try:
 		players = json.loads(result.stdout)
