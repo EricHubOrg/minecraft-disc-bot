@@ -86,14 +86,29 @@ async def before_keep_alive():
 
 # ========= DISCORD COMMANDS ==========
 
+@bot.group(
+	brief="Manage the minecraft server",
+	description="Manage the minecraft server",
+	usage="`%mine [command]`"
+)
+async def mine(
+	ctx: commands.Context
+):
+	"""
+	Group of commands to manage the minecraft server.
+	"""
+	if ctx.invoked_subcommand is None:
+		await ctx.send("Invalid command. Use `%mine help` to see available commands.")
+		return
+
 # Create a new help command
 bot.remove_command("help") # Remove the default
-@bot.command(
+@mine.command(
 	brief="Shows this help message.",
 	description="Shows a list of available commands.",
-	usage="`%help_mine (command)`"
+	usage="`%mine help (command)`"
 )
-async def help_mine(
+async def help(
 	ctx: commands.Context,
 	arg0: str=None
 ):
@@ -124,12 +139,12 @@ async def help_mine(
 		await ctx.send(embed=embed, file=file)
 
 
-@bot.command(
-		brief="Brief description of the `test_mine` command.",
-		description="Detailed description of the `test_mine` command.",
-		usage="`%test_mine [arg1] (arg2)`"
+@mine.command(
+		brief="Brief description of the `mine test` command.",
+		description="Detailed description of the `mine test` command.",
+		usage="`%mine test [arg1] (arg2)`"
 )
-async def test_mine(
+async def test(
 	ctx: commands.Context,
 	arg0: str,
 	arg1: str=0
@@ -138,10 +153,10 @@ async def test_mine(
 	await ctx.send(f"Hello there! {arg0} + {arg1} = {arg0 + arg1}")
 
 
-@bot.command(
+@mine.command(
 	brief="List all players on the server.",
 	description="List all players on the server.",
-	usage="`%list_players`"
+	usage="`%mine list_players`"
 )
 async def list_players(
 	ctx: commands.Context
@@ -169,7 +184,7 @@ async def list_players(
 	
 	# Send the players
 	usernames = [f"`{players[uuid]}`" for uuid in players]
-	await ctx.send(f"Players on the server: {usernames}")
+	await ctx.send(f"Players on the server: {', '.join(usernames)}")
 
 if __name__ == "__main__":
 	bot.run(os.environ.get("DISCORD_TOKEN"))
