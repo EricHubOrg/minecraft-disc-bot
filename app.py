@@ -1,21 +1,28 @@
 import asyncio
+import re
 import subprocess
 from dotenv import load_dotenv
 import os
 import json
 import logging
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_REMOVED
-from typing import Any, Optional
+from apscheduler.triggers.cron import CronTrigger
+from typing import Any, Optional, Union
 import discord
 from discord import Intents, DMChannel, Embed, Color
 from discord.ext import commands, tasks
+from utils import read_json, write_json, extract_json_objects
 
 load_dotenv()
+DATA_PATH = "data"
 STATIC_PATH = "static"
 USERNAME = os.environ.get("USERNAME", "root")
 HOST = os.environ.get("HOST", "localhost")
 PORT = os.environ.get("PORT", "22")
+SSH = f"ssh {USERNAME}@{HOST} -p {PORT}"
+PLAYERS_DATA_PATH = os.path.join(DATA_PATH, "players.json")
 
 # Set up logging
 logging.basicConfig(
@@ -47,6 +54,109 @@ async def on_job_removed(event: Any):
 scheduler.add_listener(on_job_removed, EVENT_JOB_REMOVED)
 
 
+# ========= FUNCTIONS ==========
+
+def build_errors_string(errors: list, indent: int = 0):
+	"""
+	Build a string with the errors recursively, adding indentation for each level.
+	"""
+	string = ""
+	indentation = "\t" * indent
+	for (function, message, error) in errors:
+		string += f"{indentation}{function}: \"{message}\"\n"
+		if isinstance(error, str):
+			if error:
+				string += f"{indentation}{error}\n"
+		else:
+			string += build_errors_string(error, indent + 1)
+	return string
+
+def log_errors(errors: list):
+	"""
+	Log the errors recursively.
+	"""
+	logging.error(build_errors_string(errors))
+
+async def get_players(errors: list=[]) -> dict:
+	"""
+	Get the players usernames and uuids from the server.
+	"""
+	# Run the command
+	command = "cat minecraft_server/usernamecache.json"
+	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
+	
+	# Parse the result
+	if result.returncode != 0:
+		errors.append((get_players.__name__, "SSH Command Error when reading usernames", result.stderr))
+		return {}
+	try:
+		players = json.loads(result.stdout)
+	except json.JSONDecodeError:
+		errors.append((get_players.__name__, "Invalid JSON output when reading usernames", result.stdout))
+		return {}
+	return players
+
+async def get_player_stats(uuids: Union[str, list], errors: list=[]) -> dict:
+	"""
+	Get the stats of a player or a list of players.
+	"""
+	# Build and run the command
+	files = " ".join([f"minecraft_server/world/stats/{uuid}.json" for uuid in uuids])
+	command = f"cat {files}"
+	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
+	if result.returncode != 0:
+		errors.append((get_player_stats.__name__, "SSH Command Error when reading player stats", result.stderr))
+		return {}
+	
+	# Find each JSON object in the output
+	json_objects = extract_json_objects(result.stdout)
+	
+	try:
+		players_stats: list[dict] = [json.loads(stats) for stats in json_objects]
+	except json.JSONDecodeError as e:
+		errors.append((get_player_stats.__name__, "Invalid JSON output when reading player stats", str(e)))
+		return {}
+	
+	# Extract stats for each player
+	stats_dict = {}
+	for uuid, player_stats in zip(uuids, players_stats):
+		stats_dict[uuid] = player_stats.get("stats", {})
+	
+	return stats_dict
+
+async def update_players_data(errors: list=[]):
+	"""
+	Update the players data.
+	"""
+	# Read the players data
+	players_data = await read_json(PLAYERS_DATA_PATH)
+	old_players_data: dict = players_data.get("players", {})
+	players_data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+	get_players_errors = []
+	players = await get_players(get_players_errors)
+	if not players:
+		errors.append((update_players_data.__name__, "Failed to get players data", get_players_errors))
+		return
+	
+	# Update the players data
+	uuids, usernames = zip(*players.items())
+	players_data["players"] = {}
+
+	get_player_stats_errors = []
+	all_players_stats = await get_player_stats(list(uuids), get_player_stats_errors)
+	
+	if not all_players_stats:
+		errors.append((update_players_data.__name__, "Failed to get player stats", get_player_stats_errors))
+		return
+	
+	for uuid, username in zip(uuids, usernames):
+		player_data = old_players_data.get(uuid, {})
+		player_stats = all_players_stats.get(uuid, {})
+		player_data["username"] = username
+		player_data["playtime"] = player_stats.get("minecraft:custom", {}).get("minecraft:play_time", 0) // 20 # ticks -> seconds
+		players_data["players"][uuid] = player_data
+
+
 # ========= DISCORD EVENTS ==========
 
 @bot.event
@@ -55,8 +165,8 @@ async def on_ready():
 	Start processes when the bot is ready.
 	"""
 	logging.info(f"We have logged in as {bot.user}")
-	keep_alive.start()
 	scheduler.start()
+	scheduler.add_job(daily_update, CronTrigger(hour=0, minute=0))
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -75,13 +185,16 @@ async def on_message(message: discord.Message):
 	# process commands normally
 	await bot.process_commands(message)
 
-@tasks.loop(minutes=1.0)
-async def keep_alive():
-	logging.info("Life signal")
+async def daily_update():
+	"""
+	Run every day updating the tracked server data.
+	"""
+	logging.info("Running daily update...")
+	errors = []
 
-@keep_alive.before_loop
-async def before_keep_alive():
-	await bot.wait_until_ready()
+	await update_players_data(errors)
+
+	logging.info("Daily update complete")
 
 
 # ========= DISCORD COMMANDS ==========
@@ -166,25 +279,64 @@ async def list_players(
 	"""
 	logging.info(f"list_players command executed by {ctx.author}")
 
-	# Run the command
-	ssh = f"ssh {USERNAME}@{HOST} -p {PORT}"
-	command = "cat minecraft_server/usernamecache.json"
-	result = subprocess.run(f"{ssh} -v {command}", shell=True, capture_output=True, text=True)
-	
-	# Parse the result
-	if result.returncode != 0:
-		await ctx.send("Error: Failed to list players. See logs for more details.")
-		logging.error(result.stderr)
-		return
-	try:
-		players = json.loads(result.stdout)
-	except json.JSONDecodeError:
-		await ctx.send("Error: Invalid JSON output.")
-		return
-	
-	# Send the players
+	players = await get_players()
 	usernames = [f"`{players[uuid]}`" for uuid in players]
 	await ctx.send(f"Players on the server: {', '.join(usernames)}")
+
+
+@mine.command(
+	brief="Show the playtime of a player.",
+	description="Show the playtime of a player.",
+	usage="`%mine playtime (username)`"
+)
+async def playtime(
+	ctx: commands.Context,
+	tgt_username: Optional[str]=None
+):
+	"""
+	Show the playtime of a player.
+	"""
+	logging.info(f"playtime command executed by {ctx.author}")
+	players = await get_players()
+	
+	if tgt_username is None:
+		# Get all players
+		players_lst = [uuid for uuid, username_ in players.items()]
+	else:
+		# Get the player/s with the given username
+		players_lst = [uuid for uuid, username_ in players.items() if username_ == tgt_username] # can be multiple
+	if not players_lst:
+		# No player with the given username found
+		msg = f"No player with username `{tgt_username}` found."
+		logging.info(msg)
+		await ctx.send(msg)
+		return
+	
+	# Get the playtime of the player/s
+	get_player_stats_errors = []
+	all_players_stats = await get_player_stats(players_lst, get_player_stats_errors)
+	if not all_players_stats:
+		msg = "Failed to get player stats."
+		log_errors([(get_player_stats.__name__, msg, get_player_stats_errors)])
+		await ctx.send(msg)
+		return
+	
+	# Extract the playtime of the player/s
+	playtime_dict = {}
+	for uuid, stats in all_players_stats.items():
+		playtime = stats.get("minecraft:custom", {}).get("minecraft:play_time", 0) // 20 # ticks -> seconds
+		playtime_dict[players[uuid]] = playtime
+	
+	if not playtime_dict:
+		msg = "No playtime data available."
+		log_errors([(playtime.__name__, msg, "minecraft:play_time entry not found for any player")])
+		await ctx.send(msg)
+		return
+	
+	# Format the playtime string
+	playtime_str = "\n".join([f"`{username}`: {playtime} seconds" for username, playtime in playtime_dict.items()])
+	await ctx.send(f"Playtime:\n{playtime_str}")
+
 
 if __name__ == "__main__":
 	bot.run(os.environ.get("DISCORD_TOKEN"))
