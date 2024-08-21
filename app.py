@@ -334,7 +334,8 @@ async def playtime(
 		return
 	
 	# Format the playtime string
-	playtime_str = "\n".join([f"`{username}`: {playtime} seconds" for username, playtime in playtime_dict.items()])
+	playtime_dict = dict(sorted(playtime_dict.items(), key=lambda item: item[1], reverse=True))
+	playtime_str = "\n".join([f"`{username}`: {playtime // 3600}h {(playtime % 3600) // 60}min" for username, playtime in playtime_dict.items()])
 	await ctx.send(f"Playtime:\n{playtime_str}")
 
 
