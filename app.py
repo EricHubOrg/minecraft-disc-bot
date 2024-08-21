@@ -38,7 +38,7 @@ intents.messages = True
 intents.reactions = True
 bot = commands.Bot(
 	command_prefix="%",
-	description="A bot to manage a self-hosted minecraft server",
+	description="A bot to manage a self-hosted minecraft server. Start all commands with `%mine`. Type `%mine help` to see available commands.",
 	intents=intents,
 )
 
@@ -232,10 +232,10 @@ async def help(
 	color = Color.blue()
 	if arg0:
 		# Give info about the command
-		command = bot.get_command(arg0)
+		command = mine.get_command(arg0)
 		if command:
 			embed = Embed(title=command.name, description=command.description, color=color)
-			embed.add_field(name="us", value=f"`{command.usage}`")
+			embed.add_field(name="use", value=f"`{command.usage}`")
 			await ctx.send(embed=embed)
 		else:
 			await ctx.send(f"There is no command with name `{arg0}`.")
@@ -246,8 +246,8 @@ async def help(
 		embed = Embed(title="Minecraft Bot", description=bot.description, color=color)
 		embed.set_thumbnail(url=f"attachment://{filename}")
 		embed.set_author(name="Eric Lopez", url="https://github.com/Pikurrot", icon_url="https://avatars.githubusercontent.com/u/90217719?v=4")
-		for command in sorted(bot.commands, key=lambda command: command.name):
-			if command.name != "help_mine":
+		for command in sorted(mine.commands, key=lambda command: command.name):
+			if command.name != "help":
 				embed.add_field(name=command.name, value=command.brief, inline=False)
 		await ctx.send(embed=embed, file=file)
 
