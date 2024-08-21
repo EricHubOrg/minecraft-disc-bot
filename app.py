@@ -279,9 +279,10 @@ async def list_players(
 	"""
 	logging.info(f"list_players command executed by {ctx.author}")
 
-	players = await get_players()
-	usernames = [f"`{players[uuid]}`" for uuid in players]
-	await ctx.send(f"Players on the server: {', '.join(usernames)}")
+	async with ctx.typing():
+		players = await get_players()
+		usernames = [f"`{players[uuid]}`" for uuid in players]
+		await ctx.send(f"Players on the server: {', '.join(usernames)}")
 
 
 @mine.command(
@@ -297,46 +298,47 @@ async def playtime(
 	Show the playtime of a player.
 	"""
 	logging.info(f"playtime command executed by {ctx.author}")
-	players = await get_players()
+	async with ctx.typing():
+		players = await get_players()
 	
-	if tgt_username is None:
-		# Get all players
-		players_lst = [uuid for uuid, username_ in players.items()]
-	else:
-		# Get the player/s with the given username
-		players_lst = [uuid for uuid, username_ in players.items() if username_ == tgt_username] # can be multiple
-	if not players_lst:
-		# No player with the given username found
-		msg = f"No player with username `{tgt_username}` found."
-		logging.info(msg)
-		await ctx.send(msg)
-		return
-	
-	# Get the playtime of the player/s
-	get_player_stats_errors = []
-	all_players_stats = await get_player_stats(players_lst, get_player_stats_errors)
-	if not all_players_stats:
-		msg = "Failed to get player stats."
-		log_errors([(get_player_stats.__name__, msg, get_player_stats_errors)])
-		await ctx.send(msg)
-		return
-	
-	# Extract the playtime of the player/s
-	playtime_dict = {}
-	for uuid, stats in all_players_stats.items():
-		playtime = stats.get("minecraft:custom", {}).get("minecraft:play_time", 0) // 20 # ticks -> seconds
-		playtime_dict[players[uuid]] = playtime
-	
-	if not playtime_dict:
-		msg = "No playtime data available."
-		log_errors([(playtime.__name__, msg, "minecraft:play_time entry not found for any player")])
-		await ctx.send(msg)
-		return
-	
-	# Format the playtime string
-	playtime_dict = dict(sorted(playtime_dict.items(), key=lambda item: item[1], reverse=True))
-	playtime_str = "\n".join([f"`{username}`: {playtime // 3600}h {(playtime % 3600) // 60}min" for username, playtime in playtime_dict.items()])
-	await ctx.send(f"Playtime:\n{playtime_str}")
+		if tgt_username is None:
+			# Get all players
+			players_lst = [uuid for uuid, username_ in players.items()]
+		else:
+			# Get the player/s with the given username
+			players_lst = [uuid for uuid, username_ in players.items() if username_ == tgt_username] # can be multiple
+		if not players_lst:
+			# No player with the given username found
+			msg = f"No player with username `{tgt_username}` found."
+			logging.info(msg)
+			await ctx.send(msg)
+			return
+		
+		# Get the playtime of the player/s
+		get_player_stats_errors = []
+		all_players_stats = await get_player_stats(players_lst, get_player_stats_errors)
+		if not all_players_stats:
+			msg = "Failed to get player stats."
+			log_errors([(get_player_stats.__name__, msg, get_player_stats_errors)])
+			await ctx.send(msg)
+			return
+		
+		# Extract the playtime of the player/s
+		playtime_dict = {}
+		for uuid, stats in all_players_stats.items():
+			playtime = stats.get("minecraft:custom", {}).get("minecraft:play_time", 0) // 20 # ticks -> seconds
+			playtime_dict[players[uuid]] = playtime
+		
+		if not playtime_dict:
+			msg = "No playtime data available."
+			log_errors([(playtime.__name__, msg, "minecraft:play_time entry not found for any player")])
+			await ctx.send(msg)
+			return
+		
+		# Format the playtime string
+		playtime_dict = dict(sorted(playtime_dict.items(), key=lambda item: item[1], reverse=True))
+		playtime_str = "\n".join([f"`{username}`: {playtime // 3600}h {(playtime % 3600) // 60}min" for username, playtime in playtime_dict.items()])
+		await ctx.send(f"Playtime:\n{playtime_str}")
 
 
 if __name__ == "__main__":
