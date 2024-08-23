@@ -382,7 +382,7 @@ async def command(
 	async with ctx.typing():
 		# Run the script
 		errors = []
-		command_str = f"\"{command_arg}\""
+		command_str = f"\"\\\"{command_arg}\\\"\"" # like "\"command\"", otherwise it doesn not work
 		success = await run_script("run_mc_command.sh", [command_str], errors)
 		user_msg = await ctx.fetch_message(ctx.message.id)
 		if not success:
@@ -411,7 +411,7 @@ async def say(
 	logging.info(f"say command executed by {ctx.author}")
 	async with ctx.typing():
 		# Run the script with /say command
-		command_str = f"/say \"{message}\""
+		command_str = f"/say {message}"
 		await command(ctx, command_str)
 
 if __name__ == "__main__":
