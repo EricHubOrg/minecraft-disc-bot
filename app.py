@@ -168,6 +168,7 @@ async def run_script(
 	Run a script on the server.
 	"""
 	command = f"bash {SCRIPTS_PATH}/{script}{' ' if args else ''}{' '.join(args)}"
+	logging.info(f"Running script: {command}")
 	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
 	if result.returncode != 0:
 		errors.append((run_script.__name__, "SSH Command Error when running script", f"Error when running {command}: {result.stderr}"))
@@ -390,7 +391,6 @@ async def command(
 			log_errors([(command.__name__, error_msg, errors)])
 			await user_msg.reply(error_msg)
 			await user_msg.add_reaction("❌")
-			return
 		else:
 			# React with a checkmark
 			await user_msg.add_reaction("✅")
@@ -410,21 +410,9 @@ async def say(
 	"""
 	logging.info(f"say command executed by {ctx.author}")
 	async with ctx.typing():
-		# Run the script with \say command
-		errors = []
-		command_str = f"\say \"{message}\""
-		success = await run_script("run_mc_command.sh", [command_str], errors)
-		user_msg = await ctx.fetch_message(ctx.message.id)
-		if not success:
-			# Log errors and reply
-			error_msg = "Failed to run script."
-			log_errors([(run_script.__name__, error_msg, errors)])
-			await user_msg.reply(error_msg)
-			await user_msg.add_reaction("❌")
-			return
-		else:
-			# React with a checkmark
-			await user_msg.add_reaction("✅")
+		# Run the script with /say command
+		command_str = f"/say \"{message}\""
+		await command(ctx, command_str)
 
 if __name__ == "__main__":
 	bot.run(os.environ.get("DISCORD_TOKEN"))
