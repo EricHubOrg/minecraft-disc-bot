@@ -46,5 +46,6 @@ jobs:
           -e USERNAME=${{ secrets.USERNAME }} \
           -e HOST=${{ secrets.HOST }} \
           -e PORT=${{ secrets.PORT }} \
+          -e SCRIPTS_PATH=${{ secrets.SCRIPTS_PATH }} \
           -v ${{ secrets.DATA_PATH }}:/usr/src/app/data \
           ${{ secrets.DOCKER_USERNAME }}/minecraft-disc-bot:latest

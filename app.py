@@ -22,6 +22,7 @@ USERNAME = os.environ.get("USERNAME", "root")
 HOST = os.environ.get("HOST", "localhost")
 PORT = os.environ.get("PORT", "22")
 SSH = f"ssh {USERNAME}@{HOST} -p {PORT}"
+SCRIPTS_PATH = os.environ.get("SCRIPTS_PATH", ".").rstrip("/")
 PLAYERS_DATA_PATH = os.path.join(DATA_PATH, "players.json")
 
 # Set up logging
@@ -156,6 +157,23 @@ async def update_players_data(errors: list=[]):
 		player_data["playtime"] = player_stats.get("minecraft:custom", {}).get("minecraft:play_time", 0) // 20 # ticks -> seconds
 		players_data["players"][uuid] = player_data
 
+	# TODO: finish
+
+async def run_script(
+	script: str,
+	args: list[str],
+	errors: list=[]
+) -> bool:
+	"""
+	Run a script on the server.
+	"""
+	command = f"bash {SCRIPTS_PATH}/{script}{' ' if args else ''}{' '.join(args)}"
+	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
+	if result.returncode != 0:
+		errors.append((run_script.__name__, "SSH Command Error when running script", f"Error when running {command}: {result.stderr}"))
+		return False
+	return True
+
 
 # ========= DISCORD EVENTS ==========
 
@@ -280,7 +298,13 @@ async def list_players(
 	logging.info(f"list_players command executed by {ctx.author}")
 
 	async with ctx.typing():
-		players = await get_players()
+		errors = []
+		players = await get_players(errors)
+		if not players:
+			msg = "Failed to get players data."
+			log_errors([(get_players.__name__, msg, errors)])
+			await ctx.send(msg)
+			return
 		usernames = [f"`{players[uuid]}`" for uuid in players]
 		await ctx.send(f"Players on the server: {', '.join(usernames)}")
 
@@ -319,15 +343,15 @@ async def playtime(
 		all_players_stats = await get_player_stats(players_lst, get_player_stats_errors)
 		if not all_players_stats:
 			msg = "Failed to get player stats."
-			log_errors([(get_player_stats.__name__, msg, get_player_stats_errors)])
+			log_errors([(playtime.__name__, msg, get_player_stats_errors)])
 			await ctx.send(msg)
 			return
 		
 		# Extract the playtime of the player/s
 		playtime_dict = {}
 		for uuid, stats in all_players_stats.items():
-			playtime = stats.get("minecraft:custom", {}).get("minecraft:play_time", 0) // 20 # ticks -> seconds
-			playtime_dict[players[uuid]] = playtime
+			playtime_int = stats.get("minecraft:custom", {}).get("minecraft:play_time", 0) // 20 # ticks -> seconds
+			playtime_dict[players[uuid]] = playtime_int
 		
 		if not playtime_dict:
 			msg = "No playtime data available."
@@ -340,6 +364,67 @@ async def playtime(
 		playtime_str = "\n".join([f"`{username}`: {playtime // 3600}h {(playtime % 3600) // 60}min" for username, playtime in playtime_dict.items()])
 		await ctx.send(f"Playtime:\n{playtime_str}")
 
+
+@mine.command(
+	brief="Runs a command on the Minecraft server.",
+	description="Runs a command on the Minecraft server. Type command inside \"\".",
+	usage="`%mine command [\"command\"]`",
+)
+async def command(
+	ctx: commands.Context,
+	command_arg: str
+):
+	"""
+	Runs a command on the server.
+	"""
+	logging.info(f"command command executed by {ctx.author}")
+	async with ctx.typing():
+		# Run the script
+		errors = []
+		command_str = f"\"{command_arg}\""
+		success = await run_script("run_mc_command.sh", [command_str], errors)
+		user_msg = await ctx.fetch_message(ctx.message.id)
+		if not success:
+			# Log errors and reply
+			error_msg = "Failed to run script."
+			log_errors([(command.__name__, error_msg, errors)])
+			await user_msg.reply(error_msg)
+			await user_msg.add_reaction("❌")
+			return
+		else:
+			# React with a checkmark
+			await user_msg.add_reaction("✅")
+
+
+@mine.command(
+	brief="Send a message to players on the Minecraft server.",
+	description="Send a message to players on the Minecraft server by running `\say \"message\"`.",
+	usage="`%mine say [\"message\"]`",
+)
+async def say(
+	ctx: commands.Context,
+	message: str
+):
+	"""
+	Send a message to players on the Minecraft server.
+	"""
+	logging.info(f"say command executed by {ctx.author}")
+	async with ctx.typing():
+		# Run the script with \say command
+		errors = []
+		command_str = f"\say \"{message}\""
+		success = await run_script("run_mc_command.sh", [command_str], errors)
+		user_msg = await ctx.fetch_message(ctx.message.id)
+		if not success:
+			# Log errors and reply
+			error_msg = "Failed to run script."
+			log_errors([(run_script.__name__, error_msg, errors)])
+			await user_msg.reply(error_msg)
+			await user_msg.add_reaction("❌")
+			return
+		else:
+			# React with a checkmark
+			await user_msg.add_reaction("✅")
 
 if __name__ == "__main__":
 	bot.run(os.environ.get("DISCORD_TOKEN"))
