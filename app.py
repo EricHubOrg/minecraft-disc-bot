@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_REMOVED
 from apscheduler.triggers.cron import CronTrigger
@@ -11,7 +11,7 @@ from typing import Any, Literal, Optional, Union
 import discord
 from discord import Intents, DMChannel, Embed, Color
 from discord.ext import commands
-from utils import read_json, extract_json_objects
+from utils import read_json, extract_json_objects, parse_log_time, format_timedelta, time_since
 
 load_dotenv()
 DATA_PATH = "data"
@@ -572,6 +572,7 @@ async def last_joined(
 			usernames_lst = [username]
 
 		errors = []
+		# TODO: implement cache when reading log files (maybe save them in global variable or in a file)
 		last_joined_lst = await asyncio.gather(*(last_time_joined(username, errors) for username in usernames_lst))
 		if errors:
 			msg = "Failed to get last joined time."
@@ -580,7 +581,15 @@ async def last_joined(
 			return
 
 		for username, (last_joined_time, last_left_time) in zip(usernames_lst, last_joined_lst):
-			message += f"`{username}`: {last_joined_time} - {last_left_time}\n"
+			joined_time = parse_log_time(last_joined_time)
+			if last_left_time != "Still playing":
+				left_time = parse_log_time(last_left_time)
+				time_since_joined = time_since(joined_time)
+				time_transcurred = format_timedelta(left_time - joined_time)
+				message += f"`{username}`: {joined_time} - {left_time} [{time_transcurred}] ({time_since_joined} ago)\n"
+			else:
+				time_since_joined = time_since(joined_time)
+				message += f"`{username}`: {joined_time} - Still playing ({time_since_joined} ago)\n"
 
 		await ctx.send(message) 
 

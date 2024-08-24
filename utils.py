@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 import json
 import os
 from dotenv import load_dotenv
@@ -61,3 +62,28 @@ def extract_json_objects(text: str) -> list[str]:
 			if open_brackets == 0:
 				json_objects.append(text[start_index:i+1])
 	return json_objects
+
+def parse_log_time(time_str):
+	return datetime.strptime(time_str, "%d%b%Y %H:%M:%S")
+
+def format_timedelta(timedelta_obj: timedelta) -> str:
+	seconds = timedelta_obj.total_seconds()
+	periods = [
+		("year", 60*60*24*365),
+		("month", 60*60*24*30),
+		("week", 60*60*24*7),
+		("day", 60*60*24),
+		("hour", 60*60),
+		("minute", 60),
+		("second", 1)
+	]
+	for period_name, period_seconds in periods:
+		if seconds >= period_seconds:
+			period_value, _ = divmod(seconds, period_seconds)
+			return f"{int(period_value)} {period_name}{'s' if period_value > 1 else ''}"
+	return "0 seconds"
+
+def time_since(dt):
+	now = datetime.now()
+	diff: timedelta = now - dt
+	return format_timedelta(diff)
