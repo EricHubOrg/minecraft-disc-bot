@@ -1,6 +1,4 @@
 import asyncio
-import re
-import subprocess
 from dotenv import load_dotenv
 import os
 import json
@@ -12,8 +10,8 @@ from apscheduler.triggers.cron import CronTrigger
 from typing import Any, Literal, Optional, Union
 import discord
 from discord import Intents, DMChannel, Embed, Color
-from discord.ext import commands, tasks
-from utils import read_json, write_json, extract_json_objects
+from discord.ext import commands
+from utils import read_json, extract_json_objects
 
 load_dotenv()
 DATA_PATH = "data"
@@ -85,16 +83,22 @@ async def get_players(errors: list=[]) -> dict:
 	"""
 	# Run the command
 	command = "cat minecraft_server/usernamecache.json"
-	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
+	proc = await asyncio.create_subprocess_shell(
+		f"{SSH} -v {command}",
+		stdout=asyncio.subprocess.PIPE,
+		stderr=asyncio.subprocess.PIPE
+	)
+	
+	stdout, stderr = await proc.communicate()
 	
 	# Parse the result
-	if result.returncode != 0:
-		errors.append((get_players.__name__, "SSH Command Error when reading usernames", result.stderr))
+	if proc.returncode != 0:
+		errors.append((get_players.__name__, "SSH Command Error when reading usernames", stderr))
 		return {}
 	try:
-		players = json.loads(result.stdout)
+		players = json.loads(stdout)
 	except json.JSONDecodeError:
-		errors.append((get_players.__name__, "Invalid JSON output when reading usernames", result.stdout))
+		errors.append((get_players.__name__, "Invalid JSON output when reading usernames", stdout))
 		return {}
 	return players
 
@@ -105,13 +109,19 @@ async def get_player_stats(uuids: Union[str, list], errors: list=[]) -> dict:
 	# Build and run the command
 	files = " ".join([f"minecraft_server/world/stats/{uuid}.json" for uuid in uuids])
 	command = f"cat {files}"
-	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
-	if result.returncode != 0:
-		errors.append((get_player_stats.__name__, "SSH Command Error when reading player stats", result.stderr))
+	proc = await asyncio.create_subprocess_shell(
+		f"{SSH} -v {command}",
+		stdout=asyncio.subprocess.PIPE,
+		stderr=asyncio.subprocess.PIPE
+	)
+	
+	stdout, stderr = await proc.communicate()
+	if proc.returncode != 0:
+		errors.append((get_player_stats.__name__, "SSH Command Error when reading player stats", stderr))
 		return {}
 	
 	# Find each JSON object in the output
-	json_objects = extract_json_objects(result.stdout)
+	json_objects = extract_json_objects(stdout)
 	
 	try:
 		players_stats: list[dict] = [json.loads(stats) for stats in json_objects]
@@ -170,9 +180,15 @@ async def run_script(
 	"""
 	command = f"bash {SCRIPTS_PATH}/{script}{' ' if args else ''}{' '.join(args)}"
 	logging.info(f"Running script: {command}")
-	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
-	if result.returncode != 0:
-		errors.append((run_script.__name__, "SSH Command Error when running script", f"Error when running {command}: {result.stderr}"))
+	proc = await asyncio.create_subprocess_shell(
+		f"{SSH} -v {command}",
+		stdout=asyncio.subprocess.PIPE,
+		stderr=asyncio.subprocess.PIPE
+	)
+	
+	stdout, stderr = await proc.communicate()
+	if proc.returncode != 0:
+		errors.append((run_script.__name__, "SSH Command Error when running script", f"Error when running {command}: {stderr}"))
 		return False
 	return True
 
@@ -181,11 +197,17 @@ async def read_log_file(file: str, errors: list=[]):
 	Read a compressed or not log file.
 	"""
 	command = f"zcat {file}" if file.endswith(".gz") else f"cat {file}"
-	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
-	if result.returncode != 0:
-		errors.append((read_log_file.__name__, "SSH Command Error when reading log file", f"Error when reading {file}: {result.stderr}"))
+	proc = await asyncio.create_subprocess_shell(
+		f"{SSH} -v {command}",
+		stdout=asyncio.subprocess.PIPE,
+		stderr=asyncio.subprocess.PIPE
+	)
+	
+	stdout, stderr = await proc.communicate()
+	if proc.returncode != 0:
+		errors.append((read_log_file.__name__, "SSH Command Error when reading log file", f"Error when reading {file}: {stderr}"))
 		return ""
-	return result.stdout
+	return stdout
 
 async def list_log_files(sort_by: Literal["name", "date"], errors: list=[]):
 	"""
@@ -194,13 +216,19 @@ async def list_log_files(sort_by: Literal["name", "date"], errors: list=[]):
 	sort_option = "-t" if sort_by == "date" else ""
 	command = f"ls {sort_option} {MINECRAFT_LOGS_PATH}/*.log* | grep -v debug"
 	
-	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
+	proc = await asyncio.create_subprocess_shell(
+		f"{SSH} -v {command}",
+		stdout=asyncio.subprocess.PIPE,
+		stderr=asyncio.subprocess.PIPE
+	)
 	
-	if result.returncode != 0:
-		errors.append((list_log_files.__name__, "SSH Command Error when listing log files", f"Error: {result.stderr}"))
+	stdout, stderr = await proc.communicate()
+	
+	if proc.returncode != 0:
+		errors.append((list_log_files.__name__, "SSH Command Error when listing log files", f"Error: {stderr}"))
 		return []
 	
-	log_files = result.stdout.strip().split('\n')
+	log_files = stdout.strip().split('\n')
 	return [file.strip() for file in log_files if file.strip()]
 
 async def search_string_in_logs(string: str, k: int=-1, max_search_lines: int=-1, errors: list=[]) -> tuple[list[str], int]:
@@ -529,7 +557,14 @@ async def last_joined(
 		else:
 			usernames_lst = [username]
 
-		last_joined_lst = await asyncio.gather(*(last_time_joined(username) for username in usernames_lst))
+		errors = []
+		last_joined_lst = await asyncio.gather(*(last_time_joined(username, errors) for username in usernames_lst))
+		if errors:
+			msg = "Failed to get last joined time."
+			log_errors([(last_joined.__name__, msg, errors)])
+			await ctx.send(msg)
+			return
+
 		for username, last_joined_time, last_left_time in zip(usernames_lst, last_joined_lst):
 			message += f"`{username}`: {last_joined_time} - {last_left_time}\n"
 
