@@ -90,6 +90,8 @@ async def get_players(errors: list=[]) -> dict:
 	)
 	
 	stdout, stderr = await proc.communicate()
+	stdout = stdout.decode("utf-8")
+	stderr = stderr.decode("utf-8")
 	
 	# Parse the result
 	if proc.returncode != 0:
@@ -116,6 +118,9 @@ async def get_player_stats(uuids: Union[str, list], errors: list=[]) -> dict:
 	)
 	
 	stdout, stderr = await proc.communicate()
+	stdout = stdout.decode("utf-8")
+	stderr = stderr.decode("utf-8")
+	
 	if proc.returncode != 0:
 		errors.append((get_player_stats.__name__, "SSH Command Error when reading player stats", stderr))
 		return {}
@@ -187,6 +192,9 @@ async def run_script(
 	)
 	
 	stdout, stderr = await proc.communicate()
+	stdout = stdout.decode("utf-8")
+	stderr = stderr.decode("utf-8")
+	
 	if proc.returncode != 0:
 		errors.append((run_script.__name__, "SSH Command Error when running script", f"Error when running {command}: {stderr}"))
 		return False
@@ -204,6 +212,9 @@ async def read_log_file(file: str, errors: list=[]):
 	)
 	
 	stdout, stderr = await proc.communicate()
+	stdout = stdout.decode("utf-8")
+	stderr = stderr.decode("utf-8")
+
 	if proc.returncode != 0:
 		errors.append((read_log_file.__name__, "SSH Command Error when reading log file", f"Error when reading {file}: {stderr}"))
 		return ""
@@ -223,7 +234,9 @@ async def list_log_files(sort_by: Literal["name", "date"], errors: list=[]):
 	)
 	
 	stdout, stderr = await proc.communicate()
-	
+	stdout = stdout.decode("utf-8")
+	stderr = stderr.decode("utf-8")
+
 	if proc.returncode != 0:
 		errors.append((list_log_files.__name__, "SSH Command Error when listing log files", f"Error: {stderr}"))
 		return []
