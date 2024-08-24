@@ -120,7 +120,7 @@ async def get_player_stats(uuids: Union[str, list], errors: list=[]) -> dict:
 	stdout, stderr = await proc.communicate()
 	stdout = stdout.decode("utf-8")
 	stderr = stderr.decode("utf-8")
-	
+
 	if proc.returncode != 0:
 		errors.append((get_player_stats.__name__, "SSH Command Error when reading player stats", stderr))
 		return {}
@@ -436,7 +436,7 @@ async def list_players(
 		players = await get_players(errors)
 		if not players:
 			msg = "Failed to get players data."
-			log_errors([(get_players.__name__, msg, errors)])
+			log_errors([("get_players", msg, errors)])
 			await ctx.send(msg)
 			return
 		usernames = [f"`{players[uuid]}`" for uuid in players]
@@ -489,7 +489,7 @@ async def playtime(
 		
 		if not playtime_dict:
 			msg = "No playtime data available."
-			log_errors([(playtime.__name__, msg, "minecraft:play_time entry not found for any player")])
+			log_errors([("playtime", msg, "minecraft:play_time entry not found for any player")])
 			await ctx.send(msg)
 			return
 		
@@ -521,7 +521,7 @@ async def command(
 		if not success:
 			# Log errors and reply
 			error_msg = "Failed to run script."
-			log_errors([(command.__name__, error_msg, errors)])
+			log_errors([("command", error_msg, errors)])
 			await user_msg.reply(error_msg)
 			await user_msg.add_reaction("❌")
 		else:
@@ -574,7 +574,7 @@ async def last_joined(
 		last_joined_lst = await asyncio.gather(*(last_time_joined(username, errors) for username in usernames_lst))
 		if errors:
 			msg = "Failed to get last joined time."
-			log_errors([(last_joined.__name__, msg, errors)])
+			log_errors([("last_joined", msg, errors)])
 			await ctx.send(msg)
 			return
 
