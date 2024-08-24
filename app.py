@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import os
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_REMOVED
 from apscheduler.triggers.cron import CronTrigger
@@ -23,6 +23,8 @@ SSH = f"ssh {USERNAME}@{HOST} -p {PORT}"
 SCRIPTS_PATH = os.environ.get("SCRIPTS_PATH", ".").rstrip("/")
 MINECRAFT_LOGS_PATH = os.environ.get("MINECRAFT_LOGS_PATH", ".").rstrip("/")
 PLAYERS_DATA_PATH = os.path.join(DATA_PATH, "players.json")
+
+cache = {}
 
 # Set up logging
 logging.basicConfig(
@@ -200,11 +202,16 @@ async def run_script(
 		return False
 	return True
 
-async def read_log_file(file: str, errors: list=[]):
+async def read_log_file(file_path: str, errors: list=[]):
 	"""
 	Read a compressed or not log file.
 	"""
-	command = f"zcat {file}" if file.endswith(".gz") else f"cat {file}"
+	# Read from cache if available
+	if file_path in cache:
+		return cache[file_path]
+	
+	# Run ssh command to read file
+	command = f"zcat {file_path}" if file_path.endswith(".gz") else f"cat {file_path}"
 	proc = await asyncio.create_subprocess_shell(
 		f"{SSH} -v {command}",
 		stdout=asyncio.subprocess.PIPE,
@@ -216,14 +223,23 @@ async def read_log_file(file: str, errors: list=[]):
 	stderr = stderr.decode("utf-8")
 
 	if proc.returncode != 0:
-		errors.append((read_log_file.__name__, "SSH Command Error when reading log file", f"Error when reading {file}: {stderr}"))
+		errors.append((read_log_file.__name__, "SSH Command Error when reading log file", f"Error when reading {file_path}: {stderr}"))
 		return ""
+	
+	# Cache the result
+	cache[file_path] = stdout
 	return stdout
 
 async def list_log_files(sort_by: Literal["name", "date"], errors: list=[]):
 	"""
 	List log files in the MINECRAFT_LOGS_PATH directory, sorted by name or date.
 	"""
+	# Read from cache if available
+	key = "log_files_" + sort_by
+	if key in cache:
+		return cache[key]
+	
+	# Run ssh command to list log files
 	sort_option = "-t" if sort_by == "date" else ""
 	command = f"ls {sort_option} {MINECRAFT_LOGS_PATH}/*.log* | grep -v debug"
 	
@@ -242,7 +258,11 @@ async def list_log_files(sort_by: Literal["name", "date"], errors: list=[]):
 		return []
 	
 	log_files = stdout.strip().split('\n')
-	return [file.strip() for file in log_files if file.strip()]
+	log_files = [file.strip() for file in log_files if file.strip()]
+	
+	# Cache the result
+	cache[key] = log_files
+	return log_files
 
 async def search_string_in_logs(string: str, k: int=-1, max_search_lines: int=-1, errors: list=[]) -> tuple[list[str], int]:
 	"""
@@ -561,6 +581,7 @@ async def last_joined(
 	"""
 	Show the last time players joined and left the server.
 	"""
+	global cache
 	logging.info(f"last_joined command executed by {ctx.author}")
 	async with ctx.typing():
 		message = ""
@@ -572,8 +593,9 @@ async def last_joined(
 			usernames_lst = [username]
 
 		errors = []
-		# TODO: implement cache when reading log files (maybe save them in global variable or in a file)
+		cache = {}
 		last_joined_lst = await asyncio.gather(*(last_time_joined(username, errors) for username in usernames_lst))
+		cache = {}
 		if errors:
 			msg = "Failed to get last joined time."
 			log_errors([("last_joined", msg, errors)])
