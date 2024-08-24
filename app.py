@@ -9,7 +9,7 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_REMOVED
 from apscheduler.triggers.cron import CronTrigger
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 import discord
 from discord import Intents, DMChannel, Embed, Color
 from discord.ext import commands, tasks
@@ -23,6 +23,7 @@ HOST = os.environ.get("HOST", "localhost")
 PORT = os.environ.get("PORT", "22")
 SSH = f"ssh {USERNAME}@{HOST} -p {PORT}"
 SCRIPTS_PATH = os.environ.get("SCRIPTS_PATH", ".").rstrip("/")
+MINECRAFT_LOGS_PATH = os.environ.get("MINECRAFT_LOGS_PATH", ".").rstrip("/")
 PLAYERS_DATA_PATH = os.path.join(DATA_PATH, "players.json")
 
 # Set up logging
@@ -174,6 +175,97 @@ async def run_script(
 		errors.append((run_script.__name__, "SSH Command Error when running script", f"Error when running {command}: {result.stderr}"))
 		return False
 	return True
+
+async def read_log_file(file: str, errors: list=[]):
+	"""
+	Read a compressed or not log file.
+	"""
+	command = f"zcat {file}" if file.endswith(".gz") else f"cat {file}"
+	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
+	if result.returncode != 0:
+		errors.append((read_log_file.__name__, "SSH Command Error when reading log file", f"Error when reading {file}: {result.stderr}"))
+		return ""
+	return result.stdout
+
+async def list_log_files(sort_by: Literal["name", "date"], errors: list=[]):
+	"""
+	List log files in the MINECRAFT_LOGS_PATH directory, sorted by name or date.
+	"""
+	sort_option = "-t" if sort_by == "date" else ""
+	command = f"ls {sort_option} {MINECRAFT_LOGS_PATH}/*.log* | grep -v debug"
+	
+	result = subprocess.run(f"{SSH} -v {command}", shell=True, capture_output=True, text=True)
+	
+	if result.returncode != 0:
+		errors.append((list_log_files.__name__, "SSH Command Error when listing log files", f"Error: {result.stderr}"))
+		return []
+	
+	log_files = result.stdout.strip().split('\n')
+	return [file.strip() for file in log_files if file.strip()]
+
+async def search_string_in_logs(string: str, k: int=-1, max_search_lines: int=-1, errors: list=[]) -> tuple[list[str], int]:
+	"""
+	Search for a string in the log files and return the first k lines that contain it.
+	"""
+	# Get the log files paths
+	list_log_files_errors = []
+	log_files_paths = await list_log_files(sort_by="date", errors=list_log_files_errors)
+	if not log_files_paths:
+		errors.append((search_string_in_logs.__name__, "Failed to list log files", list_log_files_errors))
+		return [], -1
+	
+	# Read the log files one by one until k strings are found
+	matched_lines = []
+	line_count = 0
+	for log_file_path in log_files_paths:
+		if (k != -1 and len(matched_lines) >= k) or (max_search_lines != -1 and line_count >= max_search_lines):
+			break
+		read_log_file_errors = []
+		lines = await read_log_file(log_file_path, read_log_file_errors)
+		if read_log_file_errors:
+			errors.append((search_string_in_logs.__name__, "Failed to read log file", read_log_file_errors))
+			return [], -1
+		# check if the string is in the lines
+		for line in lines[::-1]:
+			line_count += 1
+			if string in line:
+				matched_lines.append(line)
+			if (k != -1 and len(matched_lines) >= k) or (max_search_lines != -1 and line_count >= max_search_lines):
+				break
+	return matched_lines, line_count
+
+async def last_time_joined(username: str, errors: list=[]) -> (str, str):
+	"""
+	Get the last time a player joined and left the server.
+	"""
+	# Search for the "joined the game" pattern
+	joined_pattern = f"{username} joined the game"
+	search_string_in_logs_errors = []
+	joined_lines, joined_line_count = await search_string_in_logs(joined_pattern, k=1, errors=search_string_in_logs_errors)
+	if search_string_in_logs_errors:
+		errors.append((last_time_joined.__name__, "Error searching for joined pattern", search_string_in_logs_errors))
+		return ("", "")
+	if not joined_lines:
+		errors.append((last_time_joined.__name__, "No joined pattern found", f"No log lines found with pattern: {joined_pattern}"))
+		return ("No data", "No data")
+
+	# Extract the joined time
+	joined_time = joined_lines[0].split(']')[0][1:-4]
+
+	# Search for the "left the game" pattern until joined_line_count lines are searched
+	left_pattern = f"{username} left the game"
+	search_string_in_logs_errors = []
+	left_lines, _ = await search_string_in_logs(left_pattern, k=1, max_search_lines=joined_line_count, errors=search_string_in_logs_errors)
+	if search_string_in_logs_errors:
+		errors.append((last_time_joined.__name__, "Error searching for left pattern", search_string_in_logs_errors))
+		return (joined_time, "Error")
+	if not left_lines:
+		return (joined_time, "Still playing")
+
+	# Extract the left time
+	left_time = left_lines[0].split(']')[0][1:-4]
+
+	return (joined_time, left_time)
 
 
 # ========= DISCORD EVENTS ==========
@@ -413,6 +505,36 @@ async def say(
 		# Run the script with /say command
 		command_str = f"/say {message}"
 		await command(ctx, command_str)
+
+
+@mine.command(
+	brief="Show the last time players joined and left the server.",
+	description="Show the last time players joined and left the server.",
+	usage="`%mine last_joined (username)`"
+)
+async def last_joined(
+	ctx: commands.Context,
+	username: Optional[str]=None
+):
+	"""
+	Show the last time players joined and left the server.
+	"""
+	logging.info(f"last_joined command executed by {ctx.author}")
+	async with ctx.typing():
+		message = ""
+
+		if username is None:
+			players = await get_players()
+			usernames_lst = list(players.values())
+		else:
+			usernames_lst = [username]
+
+		last_joined_lst = await asyncio.gather(*(last_time_joined(username) for username in usernames_lst))
+		for username, last_joined_time, last_left_time in zip(usernames_lst, last_joined_lst):
+			message += f"`{username}`: {last_joined_time} - {last_left_time}\n"
+
+		await ctx.send(message) 
+
 
 if __name__ == "__main__":
 	bot.run(os.environ.get("DISCORD_TOKEN"))
