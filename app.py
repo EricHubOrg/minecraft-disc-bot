@@ -263,6 +263,7 @@ async def search_string_in_logs(string: str, k: int=-1, max_search_lines: int=-1
 			break
 		read_log_file_errors = []
 		lines = await read_log_file(log_file_path, read_log_file_errors)
+		lines = lines.split('\n')
 		if read_log_file_errors:
 			errors.append((search_string_in_logs.__name__, "Failed to read log file", read_log_file_errors))
 			return [], -1
