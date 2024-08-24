@@ -579,7 +579,7 @@ async def last_joined(
 			await ctx.send(msg)
 			return
 
-		for username, last_joined_time, last_left_time in zip(usernames_lst, last_joined_lst):
+		for username, (last_joined_time, last_left_time) in zip(usernames_lst, last_joined_lst):
 			message += f"`{username}`: {last_joined_time} - {last_left_time}\n"
 
 		await ctx.send(message) 
