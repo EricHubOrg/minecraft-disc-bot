@@ -69,17 +69,13 @@ async def save_privileged_users(users: list[str]):
 	await write_to_file(PRIVILEGED_USERS_PATH, "\n".join(users))
 
 async def is_privileged_user(username: str) -> bool:
-	# Check if the user is in the privileged users list
 	privileged_users = await load_privileged_users()
-	if username in privileged_users:
+	if username in privileged_users or await is_owner(username):
 		return True
-	
-	# check if the user is the bot owner
-	owner_username = Client.fetch_user(OWNER_ID)
-	return username == owner_username
+	return False
 
 def is_owner(username: str) -> bool:
-	return username == Client.fetch_user(OWNER_ID)
+	return username == bot.fetch_user(OWNER_ID)
 
 def owner_command():
 	def decorator(func):
