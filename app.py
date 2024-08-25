@@ -78,6 +78,21 @@ async def is_privileged_user(username: str) -> bool:
 	owner_username = Client.fetch_user(OWNER_ID)
 	return username == owner_username
 
+def is_owner(username: str) -> bool:
+	return username == Client.fetch_user(OWNER_ID)
+
+def owner_command():
+	def decorator(func):
+		@wraps(func)
+		async def wrapper(ctx, *args, **kwargs):
+			if await is_owner(str(ctx.author)):
+				return await func(ctx, *args, **kwargs)
+			else:
+				await ctx.send("You do not have permission to use this command.")
+				return False
+		return wrapper
+	return commands.check(decorator)
+
 def privileged_command():
 	def decorator(func):
 		@wraps(func)
@@ -484,7 +499,7 @@ async def test(
     description="Grant privileges to a user.",
     usage="`%mine grant_privileges [username]`"
 )
-@commands.is_owner()
+@owner_command()
 async def grant_privileges(
 	ctx: commands.Context,
 	username: str
@@ -503,7 +518,7 @@ async def grant_privileges(
 	description="Revoke privileges from a user.",
 	usage="`%mine revoke_privileges [username]`"
 )
-@commands.is_owner()
+@owner_command()
 async def revoke_privileges(
 	ctx: commands.Context,
 	username: str
@@ -603,7 +618,7 @@ async def playtime(
 	description="Runs a command on the Minecraft server. Type command inside \"\".",
 	usage="`%mine command [\"command\"]`",
 )
-@commands.is_owner()
+@owner_command()
 async def command(
 	ctx: commands.Context,
 	command_arg: str
