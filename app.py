@@ -11,7 +11,8 @@ from typing import Any, Literal, Optional, Union
 import discord
 from discord import Intents, DMChannel, Embed, Color
 from discord.ext import commands
-from utils import read_json, extract_json_objects, parse_log_time, format_timedelta, time_since
+from functools import wraps
+from utils import read_json, read_from_file, write_to_file, extract_json_objects, parse_log_time, format_timedelta, time_since
 
 load_dotenv()
 DATA_PATH = "data"
@@ -23,6 +24,7 @@ SSH = f"ssh {USERNAME}@{HOST} -p {PORT}"
 SCRIPTS_PATH = os.environ.get("SCRIPTS_PATH", ".").rstrip("/")
 MINECRAFT_LOGS_PATH = os.environ.get("MINECRAFT_LOGS_PATH", ".").rstrip("/")
 PLAYERS_DATA_PATH = os.path.join(DATA_PATH, "players.json")
+PRIVILEGED_USERS_PATH = os.path.join(DATA_PATH, "privileged_users.txt")
 
 cache = {}
 
@@ -55,9 +57,37 @@ async def on_job_removed(event: Any):
 		return
 scheduler.add_listener(on_job_removed, EVENT_JOB_REMOVED)
 
+# Create the files if don't exist
+if not os.path.exists(PRIVILEGED_USERS_PATH):
+	os.makedirs(os.path.dirname(PRIVILEGED_USERS_PATH), exist_ok=True)
+	write_to_file(PRIVILEGED_USERS_PATH, "")
+
 
 # ========= FUNCTIONS ==========
 
+def load_privileged_users() -> list[str]:
+	content = read_from_file(PRIVILEGED_USERS_PATH)
+	return content.split("\n")
+
+def save_privileged_users(users: list[str]):
+	write_to_file(PRIVILEGED_USERS_PATH, "\n".join(users))
+
+def is_privileged_user(username: str) -> bool:
+	privileged_users = load_privileged_users()
+	return username in privileged_users or bot.is_owner(discord.Object(id=username))
+
+def privileged_command():
+	def decorator(func):
+		@wraps(func)
+		async def wrapper(ctx, *args, **kwargs):
+			if is_privileged_user(str(ctx.author)):
+				return await func(ctx, *args, **kwargs)
+			else:
+				await ctx.send("You do not have permission to use this command.")
+		return wrapper
+	return decorator
+
+@commands.is_owner()
 def build_errors_string(errors: list, indent: int = 0):
 	"""
 	Build a string with the errors recursively, adding indentation for each level.
@@ -440,6 +470,25 @@ async def test(
 
 
 @mine.command(
+    brief="Grant privileges to a user.",
+    description="Grant privileges to a user.",
+    usage="`%mine grant_privileges [username]`"
+)
+@commands.is_owner()
+async def grant_privileges(
+	ctx: commands.Context,
+	username: str
+):
+	privileged_users = load_privileged_users()
+	if username not in privileged_users:
+		privileged_users.append(username)
+		save_privileged_users(privileged_users)
+		await ctx.send(f"Granted privileges to {username}.")
+	else:
+		await ctx.send(f"{username} already has privileges.")
+
+
+@mine.command(
 	brief="List all players on the server.",
 	description="List all players on the server.",
 	usage="`%mine list_players`"
@@ -525,6 +574,7 @@ async def playtime(
 	description="Runs a command on the Minecraft server. Type command inside \"\".",
 	usage="`%mine command [\"command\"]`",
 )
+@commands.is_owner()
 async def command(
 	ctx: commands.Context,
 	command_arg: str
@@ -555,6 +605,7 @@ async def command(
 	description="Send a message to players on the Minecraft server by running `\say \"message\"`.",
 	usage="`%mine say [\"message\"]`",
 )
+@privileged_command()
 async def say(
 	ctx: commands.Context,
 	message: str
