@@ -51,5 +51,6 @@ jobs:
           -e PORT=${{ secrets.PORT }} \
           -e SCRIPTS_PATH=${{ secrets.SCRIPTS_PATH }} \
           -e MINECRAFT_LOGS_PATH=${{ secrets.MINECRAFT_LOGS_PATH }} \
+          -e OWNER_ID=${{ secrets.OWNER_ID }} \
           -v ${{ secrets.DATA_PATH }}:/usr/src/app/data \
           ${{ secrets.DOCKER_USERNAME }}/minecraft-disc-bot:latest

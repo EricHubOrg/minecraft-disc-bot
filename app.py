@@ -9,7 +9,7 @@ from apscheduler.events import EVENT_JOB_REMOVED
 from apscheduler.triggers.cron import CronTrigger
 from typing import Any, Literal, Optional, Union
 import discord
-from discord import Intents, DMChannel, Embed, Color
+from discord import Client, Intents, DMChannel, Embed, Color
 from discord.ext import commands
 from functools import wraps
 from utils import read_json, read_from_file, write_to_file, extract_json_objects, parse_log_time, format_timedelta, time_since
@@ -25,6 +25,7 @@ SCRIPTS_PATH = os.environ.get("SCRIPTS_PATH", ".").rstrip("/")
 MINECRAFT_LOGS_PATH = os.environ.get("MINECRAFT_LOGS_PATH", ".").rstrip("/")
 PLAYERS_DATA_PATH = os.path.join(DATA_PATH, "players.json")
 PRIVILEGED_USERS_PATH = os.path.join(DATA_PATH, "privileged_users.txt")
+OWNER_ID = os.environ.get("OWNER_ID", None)
 
 cache = {}
 
@@ -68,19 +69,14 @@ async def save_privileged_users(users: list[str]):
 	await write_to_file(PRIVILEGED_USERS_PATH, "\n".join(users))
 
 async def is_privileged_user(username: str) -> bool:
+	# Check if the user is in the privileged users list
 	privileged_users = await load_privileged_users()
 	if username in privileged_users:
 		return True
 	
-	# Get the bot owner's user
-	app_info = await bot.application_info()
-	bot_owner_id = app_info.owner.id
-	user = discord.utils.get(bot.get_all_members(), name=username)
-	logging.info(f"User: {user.id} - {bot_owner_id} - {username}")
-	
-	if user and user.id == bot_owner_id:
-		return True
-	return False
+	# check if the user is the bot owner
+	owner_username = Client.fetch_user(OWNER_ID)
+	return username == owner_username
 
 def privileged_command():
 	def decorator(func):
