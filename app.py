@@ -76,6 +76,7 @@ async def is_privileged_user(username: str) -> bool:
 	app_info = await bot.application_info()
 	bot_owner_id = app_info.owner.id
 	user = discord.utils.get(bot.get_all_members(), name=username)
+	logging.info(f"User: {user.id} - {bot_owner_id} - {username}")
 	
 	if user and user.id == bot_owner_id:
 		return True
@@ -492,13 +493,32 @@ async def grant_privileges(
 	ctx: commands.Context,
 	username: str
 ):
-	privileged_users = load_privileged_users()
+	privileged_users = await load_privileged_users()
 	if username not in privileged_users:
 		privileged_users.append(username)
-		save_privileged_users(privileged_users)
+		await save_privileged_users(privileged_users)
 		await ctx.send(f"Granted privileges to {username}.")
 	else:
 		await ctx.send(f"{username} already has privileges.")
+
+
+@mine.command(
+	brief="Revoke privileges from a user.",
+	description="Revoke privileges from a user.",
+	usage="`%mine revoke_privileges [username]`"
+)
+@commands.is_owner()
+async def revoke_privileges(
+	ctx: commands.Context,
+	username: str
+):
+	privileged_users = await load_privileged_users()
+	if username in privileged_users:
+		privileged_users.remove(username)
+		await save_privileged_users(privileged_users)
+		await ctx.send(f"Revoked privileges from {username}.")
+	else:
+		await ctx.send(f"{username} does not have privileges.")
 
 
 @mine.command(
