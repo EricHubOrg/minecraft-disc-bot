@@ -89,6 +89,7 @@ def privileged_command():
 				return await func(ctx, *args, **kwargs)
 			else:
 				await ctx.send("You do not have permission to use this command.")
+		wrapper.is_privileged = True
 		return wrapper
 	return decorator
 
@@ -460,7 +461,7 @@ async def help(
 		is_privileged = await is_privileged_user(str(ctx.author))
 		for command in sorted(mine.commands, key=lambda command: command.name):
 			if command.name != "help":
-				if command.checks and not is_privileged:
+				if getattr(command.callback, "is_privileged", False) and not is_privileged:
 					# Skip commands that user is not privileged to use
 					continue
 				embed.add_field(name=command.name, value=command.brief, inline=False)
