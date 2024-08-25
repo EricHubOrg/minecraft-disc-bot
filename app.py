@@ -71,16 +71,16 @@ async def is_privileged_user(username: str) -> bool:
 	privileged_users = await load_privileged_users()
 	return username in privileged_users or bot.is_owner(discord.Object(id=username))
 
-async def privileged_command():
-	async def decorator(func):
+def privileged_command():
+	def decorator(func):
 		@wraps(func)
 		async def wrapper(ctx, *args, **kwargs):
 			if await is_privileged_user(str(ctx.author)):
 				return await func(ctx, *args, **kwargs)
 			else:
 				await ctx.send("You do not have permission to use this command.")
-		return await wrapper
-	return await decorator
+		return wrapper
+	return decorator
 
 @commands.is_owner()
 def build_errors_string(errors: list, indent: int = 0):
