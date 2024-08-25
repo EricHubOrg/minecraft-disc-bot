@@ -70,7 +70,7 @@ async def save_privileged_users(users: list[str]):
 
 async def is_privileged_user(username: str) -> bool:
 	privileged_users = await load_privileged_users()
-	user_is_owner = await is_owner(username)
+	user_is_owner = is_owner(username)
 	if user_is_owner or username in privileged_users:
 		return True
 	return False
