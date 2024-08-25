@@ -69,7 +69,17 @@ async def save_privileged_users(users: list[str]):
 
 async def is_privileged_user(username: str) -> bool:
 	privileged_users = await load_privileged_users()
-	return username in privileged_users or bot.owner_id == discord.utils.get(bot.get_all_members(), name=username).id
+	if username in privileged_users:
+		return True
+	
+	# Get the bot owner's user
+	app_info = await bot.application_info()
+	bot_owner_id = app_info.owner.id
+	user = discord.utils.get(bot.get_all_members(), name=username)
+	
+	if user and user.id == bot_owner_id:
+		return True
+	return False
 
 def privileged_command():
 	def decorator(func):
