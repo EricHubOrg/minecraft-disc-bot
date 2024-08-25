@@ -9,7 +9,7 @@ from apscheduler.events import EVENT_JOB_REMOVED
 from apscheduler.triggers.cron import CronTrigger
 from typing import Any, Literal, Optional, Union
 import discord
-from discord import Client, Intents, DMChannel, Embed, Color
+from discord import Intents, DMChannel, Embed, Color
 from discord.ext import commands
 from functools import wraps
 from utils import read_json, read_from_file, write_to_file, extract_json_objects, parse_log_time, format_timedelta, time_since
@@ -68,27 +68,28 @@ async def load_privileged_users() -> list[str]:
 async def save_privileged_users(users: list[str]):
 	await write_to_file(PRIVILEGED_USERS_PATH, "\n".join(users))
 
+async def is_owner_user(username: str) -> bool:
+	return username == str(await bot.fetch_user(OWNER_ID))
+
 async def is_privileged_user(username: str) -> bool:
 	privileged_users = await load_privileged_users()
-	user_is_owner = is_owner(username)
+	user_is_owner = await is_owner_user(username)
 	if user_is_owner or username in privileged_users:
 		return True
 	return False
-
-def is_owner(username: str) -> bool:
-	return username == bot.fetch_user(OWNER_ID)
 
 def owner_command():
 	def decorator(func):
 		@wraps(func)
 		async def wrapper(ctx, *args, **kwargs):
-			if await is_owner(str(ctx.author)):
+			if await is_owner_user(str(ctx.author)):
 				return await func(ctx, *args, **kwargs)
 			else:
 				await ctx.send("You do not have permission to use this command.")
 				return False
+		wrapper.is_owner = True
 		return wrapper
-	return commands.check(decorator)
+	return decorator
 
 def privileged_command():
 	def decorator(func):
@@ -98,6 +99,7 @@ def privileged_command():
 				return await func(ctx, *args, **kwargs)
 			else:
 				await ctx.send("You do not have permission to use this command.")
+				return False
 		wrapper.is_privileged = True
 		return wrapper
 	return decorator
@@ -245,6 +247,22 @@ async def run_script(
 		errors.append((run_script.__name__, "SSH Command Error when running script", f"Error when running {command}: {stderr}"))
 		return False
 	return True
+
+async def run_command(ctx: commands.Context, command_arg: str):
+	# Run the script
+	errors = []
+	command_str = f"\"\\\"{command_arg}\\\"\"" # like "\"command\"", otherwise it doesn not work
+	success = await run_script("run_mc_command.sh", [command_str], errors)
+	user_msg = await ctx.fetch_message(ctx.message.id)
+	if not success:
+		# Log errors and reply
+		error_msg = "Failed to run script."
+		log_errors([("command", error_msg, errors)])
+		await user_msg.reply(error_msg)
+		await user_msg.add_reaction("❌")
+	else:
+		# React with a checkmark
+		await user_msg.add_reaction("✅")
 
 async def read_log_file(file_path: str, errors: list=[]):
 	"""
@@ -468,19 +486,21 @@ async def help(
 		embed.set_author(name="Eric Lopez", url="https://github.com/Pikurrot", icon_url="https://avatars.githubusercontent.com/u/90217719?v=4")
 		
 		is_privileged = await is_privileged_user(str(ctx.author))
+		is_owner = await is_owner_user(str(ctx.author))
 		for command in sorted(mine.commands, key=lambda command: command.name):
 			if command.name != "help":
-				if getattr(command.callback, "is_privileged", False) and not is_privileged:
-					# Skip commands that user is not privileged to use
-					continue
-				embed.add_field(name=command.name, value=command.brief, inline=False)
+				command_is_privileged = getattr(command.callback, "is_privileged", False)
+				command_is_owner = getattr(command.callback, "is_owner", False)
+				can_execute = not ((command_is_privileged and not is_privileged) or (command_is_owner and not is_owner))
+				if can_execute:
+					embed.add_field(name=command.name, value=command.brief, inline=False)
 		await ctx.send(embed=embed, file=file)
 
 
 @mine.command(
-		brief="Brief description of the `mine test` command.",
-		description="Detailed description of the `mine test` command.",
-		usage="`%mine test [arg1] (arg2)`"
+	brief="Brief description of the `mine test` command.",
+	description="Detailed description of the `mine test` command.",
+	usage="`%mine test [arg1] (arg2)`"
 )
 async def test(
 	ctx: commands.Context,
@@ -501,6 +521,9 @@ async def grant_privileges(
 	ctx: commands.Context,
 	username: str
 ):
+	"""
+	Grant privileges to a user.
+	"""
 	privileged_users = await load_privileged_users()
 	if username not in privileged_users:
 		privileged_users.append(username)
@@ -520,6 +543,9 @@ async def revoke_privileges(
 	ctx: commands.Context,
 	username: str
 ):
+	"""
+	Revoke privileges from a user.
+	"""
 	privileged_users = await load_privileged_users()
 	if username in privileged_users:
 		privileged_users.remove(username)
@@ -625,20 +651,7 @@ async def command(
 	"""
 	logging.info(f"command command executed by {ctx.author}")
 	async with ctx.typing():
-		# Run the script
-		errors = []
-		command_str = f"\"\\\"{command_arg}\\\"\"" # like "\"command\"", otherwise it doesn not work
-		success = await run_script("run_mc_command.sh", [command_str], errors)
-		user_msg = await ctx.fetch_message(ctx.message.id)
-		if not success:
-			# Log errors and reply
-			error_msg = "Failed to run script."
-			log_errors([("command", error_msg, errors)])
-			await user_msg.reply(error_msg)
-			await user_msg.add_reaction("❌")
-		else:
-			# React with a checkmark
-			await user_msg.add_reaction("✅")
+		await run_command(ctx, command_arg)
 
 
 @mine.command(
@@ -658,7 +671,7 @@ async def say(
 	async with ctx.typing():
 		# Run the script with /say command
 		command_str = f"/say {message}"
-		await command(ctx, command_str)
+		await run_command(ctx, command_str)
 
 
 @mine.command(
