@@ -69,7 +69,7 @@ async def save_privileged_users(users: list[str]):
 
 async def is_privileged_user(username: str) -> bool:
 	privileged_users = await load_privileged_users()
-	return username in privileged_users or bot.is_owner(discord.Object(id=username))
+	return username in privileged_users or bot.owner_id == discord.utils.get(bot.get_all_members(), name=username).id
 
 def privileged_command():
 	def decorator(func):
@@ -82,7 +82,6 @@ def privileged_command():
 		return wrapper
 	return decorator
 
-@commands.is_owner()
 def build_errors_string(errors: list, indent: int = 0):
 	"""
 	Build a string with the errors recursively, adding indentation for each level.
