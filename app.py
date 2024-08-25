@@ -57,35 +57,30 @@ async def on_job_removed(event: Any):
 		return
 scheduler.add_listener(on_job_removed, EVENT_JOB_REMOVED)
 
-# Create the files if don't exist
-if not os.path.exists(PRIVILEGED_USERS_PATH):
-	os.makedirs(os.path.dirname(PRIVILEGED_USERS_PATH), exist_ok=True)
-	write_to_file(PRIVILEGED_USERS_PATH, "")
-
 
 # ========= FUNCTIONS ==========
 
-def load_privileged_users() -> list[str]:
-	content = read_from_file(PRIVILEGED_USERS_PATH)
+async def load_privileged_users() -> list[str]:
+	content = await read_from_file(PRIVILEGED_USERS_PATH)
 	return content.split("\n")
 
-def save_privileged_users(users: list[str]):
-	write_to_file(PRIVILEGED_USERS_PATH, "\n".join(users))
+async def save_privileged_users(users: list[str]):
+	await write_to_file(PRIVILEGED_USERS_PATH, "\n".join(users))
 
-def is_privileged_user(username: str) -> bool:
-	privileged_users = load_privileged_users()
+async def is_privileged_user(username: str) -> bool:
+	privileged_users = await load_privileged_users()
 	return username in privileged_users or bot.is_owner(discord.Object(id=username))
 
-def privileged_command():
-	def decorator(func):
+async def privileged_command():
+	async def decorator(func):
 		@wraps(func)
 		async def wrapper(ctx, *args, **kwargs):
-			if is_privileged_user(str(ctx.author)):
+			if await is_privileged_user(str(ctx.author)):
 				return await func(ctx, *args, **kwargs)
 			else:
 				await ctx.send("You do not have permission to use this command.")
-		return wrapper
-	return decorator
+		return await wrapper
+	return await decorator
 
 @commands.is_owner()
 def build_errors_string(errors: list, indent: int = 0):
@@ -370,6 +365,9 @@ async def on_ready():
 	logging.info(f"We have logged in as {bot.user}")
 	scheduler.start()
 	scheduler.add_job(daily_update, CronTrigger(hour=0, minute=0))
+	if not os.path.exists(PRIVILEGED_USERS_PATH):
+		os.makedirs(os.path.dirname(PRIVILEGED_USERS_PATH), exist_ok=True)
+		await write_to_file(PRIVILEGED_USERS_PATH, "")
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -449,8 +447,13 @@ async def help(
 		embed = Embed(title="Minecraft Bot", description=bot.description, color=color)
 		embed.set_thumbnail(url=f"attachment://{filename}")
 		embed.set_author(name="Eric Lopez", url="https://github.com/Pikurrot", icon_url="https://avatars.githubusercontent.com/u/90217719?v=4")
+		
+		is_privileged = await is_privileged_user(str(ctx.author))
 		for command in sorted(mine.commands, key=lambda command: command.name):
 			if command.name != "help":
+				if command.checks and not is_privileged:
+					# Skip commands that user is not privileged to use
+					continue
 				embed.add_field(name=command.name, value=command.brief, inline=False)
 		await ctx.send(embed=embed, file=file)
 
